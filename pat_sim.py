@@ -6,15 +6,15 @@ from pydantic import BaseModel
 class env_consts:
     tx_a = 0.102     # tx aperture 10.2 cm
     rx_a = 0.696     # rx aperture 40.64 cm (16 in)
-    link_range = 20000  # 20 km
+    link_range = 35e3  # 35 km
     jitter = 5e-6       # 5 urad
     Cn2_l = 10e-17        # Light turbulance
     Cn2_m = 10e-14        # Medium turbulance
     Cn2_h = 10e-11        # Heavy turbulance
-    Cn2 = Cn2_h
+    Cn2 = Cn2_l
 
     # aircraft
-    ac_x = np.array([1000, 0, 0])
+    ac_x = np.array([1, 0, 0])
     v = 0 # m/s
     ac_h = np.array([0.0, 1.0, 0.0], dtype=float) # point left
     ac_v = ac_h * v
@@ -303,20 +303,45 @@ def run_sim():
         h=env_consts.act_h
     )
 
-    efficiency, Wz, samples_u, samples_v, offset_u, offset_v = fire_laser(
-        beam,
-        air_turret,
-        ground_turret,
-        1000,
-        env_consts.Cn2
-    )
+    e_history = []
+    wz_history = []
+    x = np.linspace(0, int(env_consts.link_range), int(env_consts.link_range/100))
 
-    plot_fire_laser(samples_u, samples_v, offset_u, offset_v, Wz, efficiency)
+    for i in x:
+        i = int(i)
+        e, wz, samples_u, samples_v, offset_u, offset_v = fire_laser(
+            beam,
+            air_turret,
+            ground_turret,
+            1000,
+            env_consts.Cn2
+        )
 
-    print(f"Link established at distance: {np.linalg.norm(air_turret.x - ground_turret.x)} meters")
-    print(f"Beam width at transmiter was: {beam.W0*2} meters")
-    print(f"Beam width at receiver was: {Wz*2} meters")
-    print(f"Collection efficiency was: {efficiency*100}%")
+        e_history.append(e)
+        wz_history.append(wz)
+
+        air_turret.x += np.array([i, 0, 0])
+
+    fig, ax1 = plt.subplots()
+    ax1.set_xlabel("Distance (m)")
+    ax1.set_ylabel("Beam waist (m)")
+
+    ax1.plot(x, wz_history, 'bo', label="beam waist")
+
+    ax2 = ax1.twinx()
+    ax2.set_ylabel("Efficiency (%)")
+    ax2.plot(x, e_history, 'go', label="efficiency", )
+
+    plt.suptitle('efficiency and beam waist as a function of distance')
+
+    plt.show()
+
+    # plot_fire_laser(samples_u, samples_v, offset_u, offset_v, Wz, efficiency)
+
+    # print(f"Link established at distance: {np.linalg.norm(air_turret.x - ground_turret.x)} meters")
+    # print(f"Beam width at transmiter was: {beam.W0*2} meters")
+    # print(f"Beam width at receiver was: {Wz*2} meters")
+    # print(f"Collection efficiency was: {efficiency*100}%")
 
 if __name__ == '__main__':
     run_sim()
