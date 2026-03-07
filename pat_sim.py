@@ -14,16 +14,16 @@ class env_consts:
     Cn2 = Cn2_l
 
     # aircraft
-    ac_x = np.array([1, 0, 0])
-    v = 0 # m/s
-    ac_h = np.array([0.0, 1.0, 0.0], dtype=float) # point left
+    ac_x = np.array([1.0, 0.0, 0.0])
+    v = 50.0 # m/s
+    ac_h = np.array([1.0, 0.0, 0.0], dtype=float) # point left
     ac_v = ac_h * v
     
     #aircraft turret
     act_h = np.array([-1.0, 0.0, 0.0]) # point straight behind
 
     # ground turret
-    t_x = np.array([0, 0, 0])
+    t_x = np.array([0.0, 0.0, 0.0])
     t_h = np.array([1.0, 0.0, 0.0]) # point straigh ahead
 
 def R_z(theta: float) -> np.ndarray:
@@ -290,23 +290,17 @@ def plot_fire_laser(samples_u, samples_v, offset_u, offset_v, Wz, efficiency):
     ax.set_ylabel('v (m)')
     ax.set_title(f'Monte Carlo Beam Simulation — efficiency: {efficiency:.4f}')
     plt.show()
-
-def run_sim():
-    beam: gausian_beam = gausian_beam()
-    ground_turret: sim_object = sim_object(
-        x=env_consts.t_x,
-        h=env_consts.t_h
-    )
-    air_turret: sim_object = sim_object(
-        x=env_consts.ac_x,
-        v=env_consts.ac_v,
-        h=env_consts.act_h
-    )
+    
+def waist_size_vs_efficiency_instance(beam, air_turret, ground_turret):
+    """
+    Plot the waist size and efficiency per instance
+    """
+    e = 1
+    wz = beam.W0
 
     e_history = []
     wz_history = []
     x = np.linspace(0, int(env_consts.link_range), int(env_consts.link_range/100))
-
     for i in x:
         i = int(i)
         e, wz, samples_u, samples_v, offset_u, offset_v = fire_laser(
@@ -319,8 +313,10 @@ def run_sim():
 
         e_history.append(e)
         wz_history.append(wz)
-
-        air_turret.x += np.array([i, 0, 0])
+        air_turret.x = np.array([i, 0, 0])
+        if e<0.5: 
+            x = x[:len(e_history)]
+            break
 
     fig, ax1 = plt.subplots()
     ax1.set_xlabel("Distance (m)")
@@ -336,12 +332,90 @@ def run_sim():
 
     plt.show()
 
-    # plot_fire_laser(samples_u, samples_v, offset_u, offset_v, Wz, efficiency)
+    plot_fire_laser(samples_u, samples_v, offset_u, offset_v, wz, e)
 
-    # print(f"Link established at distance: {np.linalg.norm(air_turret.x - ground_turret.x)} meters")
-    # print(f"Beam width at transmiter was: {beam.W0*2} meters")
-    # print(f"Beam width at receiver was: {Wz*2} meters")
-    # print(f"Collection efficiency was: {efficiency*100}%")
+    # most recent sim #
+    print(f"position of air turret: {air_turret.x}")
+    print(f"Link established at distance: {np.linalg.norm(air_turret.x - ground_turret.x)} meters")
+    print(f"Beam width at transmiter was: {beam.W0*2} meters")
+    print(f"Beam width at receiver was: {wz} meters")
+    print(f"Collection efficiency was: {e*100}%")
+
+def maist_sze_vs_effcency_time(beam, air_turret, ground_turret):
+    """
+    Plot the waist size and efficiency per instance
+    """
+    ac = air_turret
+    t = ground_turret
+
+    e = 1
+    wz = beam.W0
+
+    e_history = []
+    wz_history = []
+    x = []
+
+    # time vector
+    iter = 1000 # number of time steps
+    elapsed = 60*5 # number of seconds
+    time = np.linspace(0,elapsed,iter)
+    dt = elapsed/1000
+
+    print(dt)
+
+    for _ in time:
+        e, wz, samples_u, samples_v, offset_u, offset_v = fire_laser(
+            beam,
+            ac,
+            t,
+            1000,
+            env_consts.Cn2
+        )
+
+        x.append(ac.x[0])
+        e_history.append(e)
+        wz_history.append(wz)
+
+        t.update(dt)
+        ac.update(dt)
+
+    fig, ax1 = plt.subplots()
+    ax1.set_xlabel("Distance (m)")
+    ax1.set_ylabel("Beam waist (m)")
+
+    ax1.plot(x, wz_history, 'bo', label="beam waist")
+
+    ax2 = ax1.twinx()
+    ax2.set_ylabel("Efficiency (%)")
+    ax2.plot(x, e_history, 'go', label="efficiency", )
+
+    plt.suptitle('efficiency and beam waist as a function of distance')
+
+    plt.show()
+
+    plot_fire_laser(samples_u, samples_v, offset_u, offset_v, wz, e)
+
+    # most recent sim #
+    print(f"position of air turret: {air_turret.x}")
+    print(f"Link established at distance: {np.linalg.norm(air_turret.x - ground_turret.x)} meters")
+    print(f"Beam width at transmiter was: {beam.W0*2} meters")
+    print(f"Beam width at receiver was: {wz} meters")
+    print(f"Collection efficiency was: {e*100}%")
+
+def run_sim():
+    beam: gausian_beam = gausian_beam()
+    ground_turret: sim_object = sim_object(
+        x=env_consts.t_x,
+        h=env_consts.t_h
+    )
+    air_turret: sim_object = sim_object(
+        x=env_consts.ac_x,
+        v=env_consts.ac_v,
+        h=env_consts.act_h
+    )
+
+    maist_sze_vs_effcency_time(beam, air_turret, ground_turret)
+    # waist_size_vs_efficiency_instance(beam, air_turret, ground_turret)
 
 if __name__ == '__main__':
     run_sim()
