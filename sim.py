@@ -8,7 +8,7 @@ from pydantic import BaseModel
 class sim_vars():
     aircraft_max_velo: float = 105 # m/s
     aircraft_stall_velo: float = 50 # m/s
-    animate = True
+    animate = False
 
 vars = sim_vars
 
@@ -113,10 +113,10 @@ class sim_object(BaseModel):
 # define mission variables
 
 # aircraft
-ac_x = 1000.0
-ac_y = -1000.0
-ac_z = 1000.0
-ac_v = 85 # m/s
+ac_x = 45e3 # 45 km
+ac_y = -1000
+ac_z = 5e3
+ac_v = 40 # m/s
 ac_h = np.array([0.0, 1.0, 0.0], dtype=float) # point left
 # alpha = np.pi/4
 # ac_h = R_x(alpha) @ ac_h.T # angle up
@@ -197,7 +197,7 @@ def run_sim():
     print("\n--- REQUIRED SERVO SPEEDS ---")
     print(f"Max X (Roll) rate: {max_req_w_rad[0]:.3f} rad/s")
     print(f"Max Y (Tilt) rate: {max_req_w_rad[1]:.3f} rad/s")
-    print(f"Max Z (Pan)  rate: {max_req_w_rad[2]:.3f} rad/s")
+    print(f"Max Z (Pan)  rate: {max_req_w_rad[2]:.5f} rad/s")
 
     print("\n--- AIRCRAFT SPECS, s frame ---")
     print(f"Max X velocity: {np.max(v_history[:,0])} m/s")
