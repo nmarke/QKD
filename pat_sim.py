@@ -1,13 +1,12 @@
 import numpy as np
 import matplotlib.pyplot as plt
-import loss_calc as loss
 from pydantic import BaseModel
 
 ARRZERO = np.array([0.0, 0.0, 0.0])
 
 class env_consts:
-    tx_a = 0.102     # tx aperture 10.2 cm
-    rx_a = 0.696     # rx aperture 40.64 cm (16 in)
+    tx_a = 0.127     # tx aperture 12.7 cm -> prev 10.07 cm
+    rx_a = 0.4064     # rx aperture 40.64 cm (16 in)
     link_range = 35e3  # 35 km
     jitter = 5e-6       # 5 urad
     Cn2_l = 10e-17        # Light turbulance
@@ -23,7 +22,7 @@ class env_consts:
     ac_h = np.array([0.0, 1.0, 0.0])
     ac_v = ac_h * v
     ac_max_elev = 5273.04 # meters
-    takeoff_dist = 500 # meters
+    takeoff_dist = 660 # meters
     takeoff_v = 38 # m/s
     
     #aircraft turret
@@ -137,13 +136,12 @@ class sim_object(BaseModel):
         # Update Position
         self.x += self.v * t_step
 
-class gausian_beam(BaseModel):
+class gaussian_beam(BaseModel):
     """
     beam properties
     """
     wavelength_m: float = 1550e-9 # beam wavelength, meters
     M2: int = 1 # beam quality factor
-    A_t_m: float = 10e-3 # telescope aperture in meters
 
     @property
     def k(self) -> float:
@@ -163,9 +161,10 @@ class gausian_beam(BaseModel):
     def W0(self) -> float:
         """
         Initial beam waist in meters
-        Derived from divergence angle and beam quality factor
+        Derived from transmitter aperture
         """
-        return self.M2 * self.wavelength_m / (np.pi * self.theta)
+        return env_consts.tx_a / 2
+        # return self.M2 * self.wavelength_m / (np.pi * self.theta)
     
     def rho0(self, z: float, Cn2: float) -> float:
         """Atmospheric spatial coherence radius"""
@@ -234,7 +233,7 @@ def norm_plane(x: sim_object) -> tuple[np.ndarray, np.ndarray]:
 
     return u, v
 
-def fire_laser(beam: gausian_beam, tx: sim_object, rx: sim_object, num_samples: float, Cn2: float):
+def fire_laser(beam: gaussian_beam, tx: sim_object, rx: sim_object, num_samples: float, Cn2: float):
     """
     perform monte carlo sim of laser between targets
     """
@@ -266,14 +265,14 @@ def fire_laser(beam: gausian_beam, tx: sim_object, rx: sim_object, num_samples: 
     Wz = beam.beam_size_st(z, Cn2)
 
     # define beam distribution
-    sigma_beam = Wz / 2
+    sigma_beam = Wz / np.sqrt(2)
 
     samples_u = np.random.normal(offset_u, sigma_beam, num_samples)
     samples_v = np.random.normal(offset_v, sigma_beam, num_samples)
 
     # distance of each sample from rx center
     r = np.sqrt(samples_u**2 + samples_v**2)
-    hits = np.sum(r <= env_consts.rx_a)
+    hits = np.sum(r <= env_consts.rx_a / 2)
     efficiency = hits / num_samples
 
     return efficiency, Wz, samples_u, samples_v, offset_u, offset_v, wander_u, wander_v, z
@@ -281,13 +280,13 @@ def fire_laser(beam: gausian_beam, tx: sim_object, rx: sim_object, num_samples: 
 def course_allignment():
     pass # TODO
 
-def plot_fire_laser(samples_u, samples_v, offset_u, offset_v, Wz, efficiency):
+def plot_fire_laser(samples_u, samples_v, offset_u, offset_v, Wz, efficiency, z):
     fig, ax = plt.subplots(1, 1, figsize=(8, 8))
 
     ax.scatter(samples_u, samples_v, s=0.5, alpha=0.3, color='blue', label='samples')
 
     # rx aperture circle
-    rx_circle = plt.Circle((0, 0), env_consts.rx_a,
+    rx_circle = plt.Circle((0, 0), env_consts.rx_a / 2,
                             color='green', fill=False, linewidth=2, label='rx aperture')
     ax.add_patch(rx_circle)
 
@@ -303,7 +302,7 @@ def plot_fire_laser(samples_u, samples_v, offset_u, offset_v, Wz, efficiency):
     ax.legend()
     ax.set_xlabel('u (m)')
     ax.set_ylabel('v (m)')
-    ax.set_title(f'Monte Carlo Beam Simulation — efficiency: {efficiency:.4f}')
+    ax.set_title(f'Monte Carlo Beam Simulation — efficiency: {efficiency:.4f} — distance: {z:.4f} (m)')
     plt.show()
     
 def waist_size_vs_efficiency_instance(beam, air_turret, ground_turret):
@@ -356,7 +355,7 @@ def waist_size_vs_efficiency_instance(beam, air_turret, ground_turret):
     print(f"Beam width at receiver was: {wz} meters")
     print(f"Collection efficiency was: {e*100}%")
 
-def waist_size_vs_effcency_fine_tracking(beam: gausian_beam, 
+def waist_size_vs_effcency_fine_tracking(beam: gaussian_beam, 
                                 air_turret: sim_object, 
                                 ground_turret: sim_object, 
                                 atmospheric_effect_time: float):
@@ -438,7 +437,7 @@ def waist_size_vs_effcency_fine_tracking(beam: gausian_beam,
     print(f"max fine tracking angle: {np.max(fine_history)} rad")
     print(f"min fine tracking angle: {np.min(fine_history)} rad")
 
-def simple_ground_test(beam: gausian_beam, air_turret: sim_object, ground_turret: sim_object):
+def simple_ground_test(beam: gaussian_beam, air_turret: sim_object, ground_turret: sim_object):
     ac = air_turret
     t = ground_turret
     dist = np.linalg.norm(ac.x - t.x)
@@ -451,9 +450,10 @@ def simple_ground_test(beam: gausian_beam, air_turret: sim_object, ground_turret
     ac.x = ac_x
     t.x = t_x
 
-    Cn2 = 10e-12  # Heavy turbulance due to hot tarmac
+    Cn2 = env_consts.Cn2_h  # Heavy turbulance due to hot tarmac
 
     fine_history = []
+    wander_history = []
     
     for i in range(1000): # perform 100 tests
         # fire laser
@@ -471,16 +471,20 @@ def simple_ground_test(beam: gausian_beam, air_turret: sim_object, ground_turret
 
         # record history
         fine_history.append(offset_rads)
+        wander_history.append(offset_distance)
 
     # display min and max step
     print(f"max fine tracking angle: {np.max(fine_history)} rad")
     print(f"min fine tracking angle: {np.min(fine_history)} rad")
+    print(f"Beam waist at final distance: {wz} m")
+    print(f"beam waist increase: {wz - beam.W0}")
+    print(f"max beam wander: {np.max(wander_history)} m")
 
     
     # plot
-    plot_fire_laser(samples_u, samples_v, offset_u, offset_v, wz, e)
+    plot_fire_laser(samples_u, samples_v, offset_u, offset_v, wz, e, z)
 
-def runway_takeoff_test(beam: gausian_beam, air_turret: sim_object, ground_turret: sim_object):
+def runway_takeoff_test(beam: gaussian_beam, air_turret: sim_object, ground_turret: sim_object):
     # wrappers
     ac = air_turret
     t = ground_turret
@@ -503,10 +507,11 @@ def runway_takeoff_test(beam: gausian_beam, air_turret: sim_object, ground_turre
     t.h = los / np.linalg.norm(los)
 
     # values init
-    Cn2 = 10e-12  # Heavy turbulance due to hot tarmac
+    Cn2 = env_consts.Cn2_h  # Heavy turbulance due to hot tarmac
     dist = np.linalg.norm(ac.x - t.x)
 
     # history init
+    w = [] # angular rate
     ac_pos_history = []
     dist_history = []
     e_history = []
@@ -515,6 +520,7 @@ def runway_takeoff_test(beam: gausian_beam, air_turret: sim_object, ground_turre
     samples_u_history = []
     samples_v_history = []
     fine_history = []
+    z_history = []
     i = 0
     
     # time init
@@ -529,6 +535,8 @@ def runway_takeoff_test(beam: gausian_beam, air_turret: sim_object, ground_turre
         if np.linalg.norm(ac.v) >= env_consts.takeoff_v: ac.a = ARRZERO
 
         direction = t.x - ac.x
+        los = ac.x - t.x # line of sight vector
+        r_squared = np.dot(los, los)
         ac.h = direction / np.linalg.norm(direction)
     
         # fire laser
@@ -556,6 +564,8 @@ def runway_takeoff_test(beam: gausian_beam, air_turret: sim_object, ground_turre
         e_history.append(e)
         wz_history.append(wz)
         fine_history.append(offset_rads)
+        z_history.append(z)
+        w.append(np.cross(los, ac.v) / r_squared) # angular rate
 
         # update states
         ac.update(dt)
@@ -571,6 +581,8 @@ def runway_takeoff_test(beam: gausian_beam, air_turret: sim_object, ground_turre
     # display min and max step
     print(f"max fine tracking angle: {np.max(fine_history)} rad")
     print(f"min fine tracking angle: {np.min(fine_history)} rad")
+    print(f"max coarse tracking rate: {np.max(w)} rad/s")
+    print(f"min coarse tracking rate: {np.min(w)} rad/s")
 
     # downsample
     num_samples = 4
@@ -578,6 +590,7 @@ def runway_takeoff_test(beam: gausian_beam, air_turret: sim_object, ground_turre
     fired_samples = np.array([fired_history[i] for i in indices])
     samples_u_samples = np.array([samples_u_history[i] for i in indices])
     samples_v_samples = np.array([samples_v_history[i] for i in indices])
+    z_samples = np.array([z_history[i] for i in indices])
 
     # plot fired
     for i in range(num_samples):
@@ -586,7 +599,7 @@ def runway_takeoff_test(beam: gausian_beam, air_turret: sim_object, ground_turre
                         offset_u=fired_samples[i][0],
                         offset_v=fired_samples[i][1], 
                         Wz=fired_samples[i][2], 
-                        efficiency=fired_samples[i][3])
+                        efficiency=fired_samples[i][3], z=z_samples[i])
         
     # plot efficiency per distance
     x = dist_history
@@ -606,13 +619,13 @@ def runway_takeoff_test(beam: gausian_beam, air_turret: sim_object, ground_turre
 
     plt.show()
 
-def far_flight_test(beam: gausian_beam, air_turret: sim_object, ground_turret: sim_object):
+def far_flight_test(beam: gaussian_beam, air_turret: sim_object, ground_turret: sim_object):
     # wrappers
     ac = air_turret
     t = ground_turret
 
     # positions init
-    ac_x = np.array([45.0e3, -1.0e3, 5.0e3])
+    ac_x = np.array([45.0e3, -1.0e3, 1.0e4]) # 5.0e3
     ac_y_init = ac_x[1]
     ac_traveled = 0
     t_x = np.array([0.0, 0.0, 0.0])
@@ -622,18 +635,20 @@ def far_flight_test(beam: gausian_beam, air_turret: sim_object, ground_turret: s
     # acceleration init
     ac_a_i = env_consts.takeoff_v**2 / env_consts.runway_dist
     ac_a = env_consts.ac_h * ac_a_i
+    ac_v = env_consts.ac_h * 85 # 85 m/s
 
     # assign values
     ac.x = ac_x
     t.h = ac_x
     t.x = t_x
-    ac.a = ac_a
+    ac.v = ac_v
 
     # values init
-    Cn2 = 10e-14  # light
+    Cn2 = env_consts.Cn2_l  # light
     dist = np.linalg.norm(ac.x - t.x)
 
     # history init
+    w = []
     ac_pos_history = []
     dist_history = []
     e_history = []
@@ -642,6 +657,7 @@ def far_flight_test(beam: gausian_beam, air_turret: sim_object, ground_turret: s
     samples_u_history = []
     samples_v_history = []
     fine_history = []
+    z_history = []
     i = 0
     
     # time init
@@ -651,12 +667,13 @@ def far_flight_test(beam: gausian_beam, air_turret: sim_object, ground_turret: s
 
     # loop across runway length
     print("Running...")
-    while ac_traveled <= 1e3: # 1km
-        # stop accelerating once velocity is acheived
-        if np.linalg.norm(ac.v) >= env_consts.takeoff_v: ac.a = ARRZERO
+    while ac_traveled <= 2e3: # 2km
 
+        # update los vector
         direction = t.x - ac.x
         ac.h = direction / np.linalg.norm(direction)
+        los = ac.x - t.x # line of sight vector
+        r_squared = np.dot(los, los)
     
         # fire laser
         e, wz, samples_u, samples_v, offset_u, offset_v, wander_u, wander_v, z = fire_laser(
@@ -683,6 +700,9 @@ def far_flight_test(beam: gausian_beam, air_turret: sim_object, ground_turret: s
         e_history.append(e)
         wz_history.append(wz)
         fine_history.append(offset_rads)
+        z_history.append(z)
+        # w.append(np.cross(los, ac.v) / r_squared) # angular rate
+        w.append(np.linalg.norm(np.cross(los, ac.v) / r_squared))
 
         # update states
         ac.update(dt)
@@ -698,6 +718,8 @@ def far_flight_test(beam: gausian_beam, air_turret: sim_object, ground_turret: s
     # display min and max step
     print(f"max fine tracking angle: {np.max(fine_history)} rad")
     print(f"min fine tracking angle: {np.min(fine_history)} rad")
+    print(f"max coarse tracking rate: {np.max(w)} rad/s")
+    print(f"min coarse tracking rate: {np.min(w)} rad/s")
 
     # downsample
     num_samples = 4
@@ -705,6 +727,7 @@ def far_flight_test(beam: gausian_beam, air_turret: sim_object, ground_turret: s
     fired_samples = np.array([fired_history[i] for i in indices])
     samples_u_samples = np.array([samples_u_history[i] for i in indices])
     samples_v_samples = np.array([samples_v_history[i] for i in indices])
+    z_samples = np.array([z_history[i] for i in indices])
 
     # plot fired
     for i in range(num_samples):
@@ -713,7 +736,7 @@ def far_flight_test(beam: gausian_beam, air_turret: sim_object, ground_turret: s
                         offset_u=fired_samples[i][0],
                         offset_v=fired_samples[i][1], 
                         Wz=fired_samples[i][2], 
-                        efficiency=fired_samples[i][3])
+                        efficiency=fired_samples[i][3], z=z_samples[i])
         
     # plot efficiency per distance
     x = dist_history
@@ -734,7 +757,7 @@ def far_flight_test(beam: gausian_beam, air_turret: sim_object, ground_turret: s
     plt.show()
 
 def run_sim():
-    beam: gausian_beam = gausian_beam()
+    beam: gaussian_beam = gaussian_beam()
     ground_turret: sim_object = sim_object(
         x=env_consts.t_x,
         h=env_consts.t_h
@@ -744,7 +767,7 @@ def run_sim():
         v=env_consts.ac_v,
         h=env_consts.act_h
     )
-    test = 'g'
+    test = 'f'
 
     if test == 'g':
         simple_ground_test(beam, air_turret, ground_turret)
